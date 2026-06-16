@@ -14,7 +14,7 @@ RUN npm install
 COPY . .
 
 # 6. กำหนด Port ที่ต้องการให้ Container เปิดใช้งาน (สมมติว่าเป็น 3000)
-EXPOSE 3004
+EXPOSE 3009
 
 # 7. คำสั่งสำหรับรันแอปพลิเคชัน
 CMD ["node", "server.js"]
