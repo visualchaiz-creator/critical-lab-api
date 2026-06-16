@@ -21,13 +21,19 @@ cron.schedule('* * * * *', async () => {
 
         console.log('⏰ Run Critical Lab');
 
-        await axios.get(
-            'http://localhost:3003/api/critical-lab/process'
-        );
+        // await axios.get(
+        //     'http://localhost:3004/api/critical-lab/process'
+        // );
 
-        await axios.get(
-            'http://localhost:3003/api/critical-lab/send-telegram'
-        );
+        // await axios.get(
+        //     'http://localhost:3004/api/critical-lab/send-telegram'
+        // );
+        // ดึงค่าจาก .env ถ้าไม่มีให้ใช้ http://localhost:3004 เป็นค่าเริ่มต้น (Fallback)
+    const apiUrl = process.env.CRITICAL_LAB_API_URL || 'http://localhost:3004';
+
+    await axios.get(`${apiUrl}/api/critical-lab/process`);
+
+    await axios.get(`${apiUrl}/api/critical-lab/send-telegram`);
 
     } catch (err) {
 
@@ -41,6 +47,6 @@ console.log('✅ Critical Lab Cron Started');
 //จบ
 
 
-app.listen(3003, () => {
-  console.log('Server running on port 3003');
+app.listen(3004, () => {
+  console.log('Server running on port 3004');
 });
