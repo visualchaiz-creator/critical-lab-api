@@ -315,7 +315,7 @@ router.get('/send-telegram', async (req, res) => {
             const [chatRows] = await db.query(
                 `
                 SELECT chat_id
-                FROM ward_telegram
+                FROM critical_lab_alert_ward_telegram
                 WHERE ward_name=?
                 LIMIT 1
                 `,
@@ -362,7 +362,6 @@ Ward : ${wardName}
 
 Lab : ${row.lab_items_name}
 Result : ${row.result_value}
-เกณฑ์วิกฤติ :
 -------------------------
 
 `;
