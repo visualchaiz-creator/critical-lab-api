@@ -12,32 +12,29 @@ app.use(express.json());
 
 
 const criticalLabRoute = require('./routes/criticalLab');
+const sendMorProm = require('./utils/morpromNotify'); // เพิ่มบรรทัดนี้
 app.use('/api/critical-lab', criticalLabRoute);
 
 //รันทุก 1 นาที
 cron.schedule('* * * * *', async () => {
 
+    console.log(
+        '⏰ Run Critical Lab'
+    );
+
     try {
 
-        console.log('⏰ Run Critical Lab');
+        const apiUrl = process.env.CRITICAL_LAB_API_URL || 'http://localhost:3009';
+        await axios.get(`${apiUrl}/api/critical-lab/process`);
 
-        // await axios.get(
-        //     'http://localhost:3004/api/critical-lab/process'
-        // );
+        await axios.get(`${apiUrl}/api/critical-lab/send-telegram`);
 
-        // await axios.get(
-        //     'http://localhost:3004/api/critical-lab/send-telegram'
-        // );
-        // ดึงค่าจาก .env ถ้าไม่มีให้ใช้ http://localhost:3004 เป็นค่าเริ่มต้น (Fallback)
-    const apiUrl = process.env.CRITICAL_LAB_API_URL || 'http://localhost:3009';
+    } catch(err) {
 
-    await axios.get(`${apiUrl}/api/critical-lab/process`);
-
-    await axios.get(`${apiUrl}/api/critical-lab/send-telegram`);
-
-    } catch (err) {
-
-        console.error(err.message);
+        console.error(
+            'CRON ERROR',
+            err.message
+        );
 
     }
 

@@ -3,6 +3,7 @@ const router = express.Router();
 
 const db = require('../db');
 const sendTelegram = require('../utils/telegramNotify');
+const sendMorProm = require('../utils/morpromNotify'); // เพิ่มบรรทัดนี้
 
 /*
 |--------------------------------------------------------------------------
@@ -251,191 +252,202 @@ router.get('/process', async (req, res) => {
 
 /*
 |--------------------------------------------------------------------------
-| Send Telegram
+| Send หมอพร้อม
 |--------------------------------------------------------------------------
 */
 router.get('/send-telegram', async (req, res) => {
 
-    try {
+try {
 
-        const [alerts] = await db.query(`
-            SELECT *
-            FROM critical_lab_alert
-            WHERE telegram_sent='N'
-            ORDER BY ward,id
-            LIMIT 50
-        `);
-        console.log(
-    `📨 พบรายการรอส่ง ${alerts.length} ราย`
-);
+    const [alerts] = await db.query(`
+        SELECT *
+        FROM critical_lab_alert
+        WHERE morprom_sent='N'
+        ORDER BY ward,id
+        LIMIT 50
+    `);
 
-        if (alerts.length === 0) {
+    console.log(
+        `📨 พบรายการรอส่ง ${alerts.length} ราย`
+    );
 
-            return res.json({
-                ok: true,
-                total: 0,
-                sent: 0
-            });
+    if (alerts.length === 0) {
 
-        }
-
-        // Group By Ward
-        const wardGroups = {};
-
-        for (const row of alerts) {
-
-            const ward = row.ward || 'OPD/ER';
-
-            if (!wardGroups[ward]) {
-                wardGroups[ward] = [];
-            }
-
-            wardGroups[ward].push(row);
-
-        }
-
-        let sentCount = 0;
-
-        function chunkArray(array, size) {
-
-            const result = [];
-
-            for (let i = 0; i < array.length; i += size) {
-                result.push(
-                    array.slice(i, i + size)
-                );
-            }
-
-            return result;
-
-        }
-
-        for (const wardName of Object.keys(wardGroups)) {
-
-            const [chatRows] = await db.query(
-                `
-                SELECT chat_id
-                FROM critical_lab_alert_ward_telegram
-                WHERE ward_name=?
-                LIMIT 1
-                `,
-                [wardName]
-            );
-
-            if (chatRows.length === 0) {
-
-                console.log(
-                    `❌ ไม่พบ Chat ID : ${wardName}`
-                );
-
-                continue;
-
-            }
-
-            const chatId = chatRows[0].chat_id;
-
-            const groups = chunkArray(
-                wardGroups[wardName],
-                5
-            );
-
-            for (const group of groups) {
-
-                let message =
-`🚨 CRITICAL LAB ALERT
-
-Ward : ${wardName}
-
-จำนวน ${group.length} ราย
-
-`;
-
-                const ids = [];
-
-                for (const row of group) {
-
-                    message +=
-`HN : ${row.hn}
-ชื่อ : ${row.patient_name}
-เพศ : ${row.sex_name}
-อายุ : ${row.age} ปี
-
-Lab : ${row.lab_items_name}
-Result : ${row.result_value}
--------------------------
-
-`;
-
-                    ids.push(row.id);
-
-                }
-
-                const sent =
-                    await sendTelegram(
-                        chatId,
-                        message
-                    );
-
-                if (sent) {
-
-                    await db.query(`
-                        UPDATE critical_lab_alert
-                        SET
-                            telegram_sent='Y',
-                            telegram_sent_datetime=NOW()
-                        WHERE id IN (${ids.join(',')})
-                    `);
-
-                    sentCount += group.length;
-
-                    console.log(
-                        `✅ ส่ง Ward ${wardName} จำนวน ${group.length} ราย`
-                    );
-
-                }
-
-                // หน่วง 3 วินาที
-                await new Promise(
-                    resolve =>
-                        setTimeout(
-                            resolve,
-                            3000
-                        )
-                );
-
-            }
-
-        }
-console.log(
-    `✅ ส่งสำเร็จ ${sentCount} ราย`
-);
-        res.json({
-
+        return res.json({
             ok: true,
-            total: alerts.length,
-            sent: sentCount
-
-        });
-
-    } catch (err) {
-
-        console.error(err);
-
-        res.status(500).json({
-
-            ok: false,
-            error: err.message
-
+            total: 0,
+            sent: 0
         });
 
     }
 
+    const wardGroups = {};
+
+    for (const row of alerts) {
+
+        const ward =
+            row.ward || 'OPD/ER';
+
+        if (!wardGroups[ward]) {
+
+            wardGroups[ward] = [];
+
+        }
+
+        wardGroups[ward].push(row);
+
+    }
+
+    let sentCount = 0;
+
+    for (const wardName of Object.keys(wardGroups)) {
+
+        const [configRows] =
+        await db.query(`
+            SELECT
+                client_key,
+                secret_key
+            FROM critical_lab_morprom_config
+            WHERE ward_name=?
+            AND active='Y'
+            LIMIT 1
+        `, [wardName]);
+
+        if (configRows.length === 0) {
+
+            console.log(
+                `❌ ไม่พบ Config : ${wardName}`
+            );
+
+            continue;
+
+        }
+
+        const clientKey =
+            configRows[0].client_key;
+
+        const secretKey =
+            configRows[0].secret_key;
+
+        const total =
+            wardGroups[wardName].length;
+
+        let message =
+
+`🚨 แจ้งเตือนผล LAB วิกฤติ
+
+🏥 Ward : ${wardName}
+📋 จำนวน : ${total} ราย
+
+====================
+
+`;
+
+        const ids = [];
+
+        for (const row of wardGroups[wardName]) {
+
+            let criticalText = '';
+
+            if (
+                row.critical_low !== null &&
+                Number(row.result_value) <
+                Number(row.critical_low)
+            ) {
+
+                criticalText =
+                    '🔻 ต่ำกว่าค่าวิกฤติ';
+
+            }
+
+            if (
+                row.critical_high !== null &&
+                Number(row.result_value) >
+                Number(row.critical_high)
+            ) {
+
+                criticalText =
+                    '🔺 สูงกว่าค่าวิกฤติ';
+
+            }
+
+            message +=
+
+`👤 ${row.patient_name}
+🆔 HN : ${row.hn}
+⚧  เพศ ${row.sex_name} ปี
+🎂 อายุ : ${row.age} ปี
+🧪 Lab: ${row.lab_items_name}
+📈 Result : ${row.result_value}
+${criticalText}
+
+`;
+
+            ids.push(row.id);
+
+        }
+
+        console.log(
+            `WARD= ${wardName}`
+        );
+
+        const sent =
+            await sendMorProm(
+                clientKey,
+                secretKey,
+                message
+            );
+
+        if (sent) {
+
+            await db.query(`
+                UPDATE critical_lab_alert
+                SET
+                    morprom_sent='Y',
+                    morprom_sent_datetime=NOW()
+                WHERE id IN (${ids.join(',')})
+            `);
+
+            sentCount += ids.length;
+
+            console.log(
+                `✅ MorProm ${wardName} : ${ids.length} ราย`
+            );
+
+        }
+
+    }
+
+    console.log(
+        `🎯 ส่งสำเร็จ ${sentCount} ราย`
+    );
+
+    res.json({
+        ok: true,
+        total: alerts.length,
+        sent: sentCount
+    });
+
+} catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+        ok: false,
+        error: err.message
+    });
+
+}
+
 });
+
+
+
 
 //////////////ส่งให้ C#
 //เพิ่ม API ใหม่
 //GET Pending
-//GET /api/critical-lab/pending/ตึกอายุรกรรมชาย 2
+//GET /api/critical-lab/pending/
 
 router.get('/pending/:ward', async (req, res) => {
 
@@ -449,11 +461,11 @@ router.get('/pending/:ward', async (req, res) => {
             WHERE ward=?
             AND acknowledge_status='N'
             ORDER BY id DESC
-        `,[ward]);
+        `, [ward]);
 
         res.json(rows);
 
-    } catch(err){
+    } catch (err) {
 
         res.status(500).json({
             error: err.message
@@ -513,6 +525,9 @@ router.put('/ack/:id', async (req, res) => {
     }
 
 });
+//ส่งเข้าหมอพร้อม
+
+
 
 
 
