@@ -375,7 +375,7 @@ try {
 
 `👤 ${row.patient_name}
 🆔 HN : ${row.hn}
-⚧  เพศ ${row.sex_name} ปี
+⚧  เพศ :${row.sex_name} ปี
 🎂 อายุ : ${row.age} ปี
 🧪 Lab: ${row.lab_items_name}
 📈 Result : ${row.result_value}
