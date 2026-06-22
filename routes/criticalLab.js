@@ -89,7 +89,9 @@ router.get('/process', async (req, res) => {
 
             r.lab_items_name,
             r.critical_low,
-            r.critical_high
+            r.critical_high,
+            r.rule_type,
+            r.critical_text
 
         FROM lab_head h
 
@@ -123,29 +125,71 @@ router.get('/process', async (req, res) => {
 
         for (const row of rows) {
 
-            const value = parseFloat(
-                String(row.lab_order_result)
-                .replace(/,/g, '')
-            );
-
-            if (isNaN(value)) {
-                continue;
-            }
-
             let isCritical = false;
 
-            if (
-                row.critical_low !== null &&
-                value < Number(row.critical_low)
-            ) {
-                isCritical = true;
+            let resultValue =
+                row.lab_order_result;
+
+            //
+            // NUMERIC
+            //
+            if (row.rule_type === 'NUMERIC') {
+
+                const value = parseFloat(
+                    String(row.lab_order_result)
+                    .replace(/,/g, '')
+                );
+
+                if (isNaN(value)) {
+                    continue;
+                }
+
+                resultValue = value;
+
+                if (
+                    row.critical_low !== null &&
+                    value < Number(row.critical_low)
+                ) {
+
+                    isCritical = true;
+
+                }
+
+                if (
+                    row.critical_high !== null &&
+                    value > Number(row.critical_high)
+                ) {
+
+                    isCritical = true;
+
+                }
+
             }
 
-            if (
-                row.critical_high !== null &&
-                value > Number(row.critical_high)
-            ) {
-                isCritical = true;
+            //
+            // TEXT
+            //
+            else if (row.rule_type === 'TEXT') {
+
+                const resultText =
+                    String(row.lab_order_result || '')
+                    .trim()
+                    .toUpperCase();
+
+                const criticalText =
+                    String(row.critical_text || '')
+                    .trim()
+                    .toUpperCase();
+
+                if (
+                    resultText &&
+                    resultText === criticalText
+                ) {
+
+                    isCritical = true;
+
+                }
+
             }
 
             if (!isCritical) {
@@ -219,7 +263,7 @@ router.get('/process', async (req, res) => {
                     row.lab_items_code,
                     row.lab_items_name,
 
-                    value,
+                    resultValue,
 
                     row.critical_low,
                     row.critical_high
@@ -257,9 +301,9 @@ router.get('/process', async (req, res) => {
 */
 router.get('/send-telegram', async (req, res) => {
 
-try {
+    try {
 
-    const [alerts] = await db.query(`
+        const [alerts] = await db.query(`
         SELECT *
         FROM critical_lab_alert
         WHERE morprom_sent='N'
@@ -267,43 +311,43 @@ try {
         LIMIT 50
     `);
 
-    console.log(
-        `📨 พบรายการรอส่ง ${alerts.length} ราย`
-    );
+        console.log(
+            `📨 พบรายการรอส่ง ${alerts.length} ราย`
+        );
 
-    if (alerts.length === 0) {
+        if (alerts.length === 0) {
 
-        return res.json({
-            ok: true,
-            total: 0,
-            sent: 0
-        });
-
-    }
-
-    const wardGroups = {};
-
-    for (const row of alerts) {
-
-        const ward =
-            row.ward || 'OPD/ER';
-
-        if (!wardGroups[ward]) {
-
-            wardGroups[ward] = [];
+            return res.json({
+                ok: true,
+                total: 0,
+                sent: 0
+            });
 
         }
 
-        wardGroups[ward].push(row);
+        const wardGroups = {};
 
-    }
+        for (const row of alerts) {
 
-    let sentCount = 0;
+            const ward =
+                row.ward || 'OPD/ER';
 
-    for (const wardName of Object.keys(wardGroups)) {
+            if (!wardGroups[ward]) {
 
-        const [configRows] =
-        await db.query(`
+                wardGroups[ward] = [];
+
+            }
+
+            wardGroups[ward].push(row);
+
+        }
+
+        let sentCount = 0;
+
+        for (const wardName of Object.keys(wardGroups)) {
+
+            const [configRows] =
+            await db.query(`
             SELECT
                 client_key,
                 secret_key
@@ -313,28 +357,28 @@ try {
             LIMIT 1
         `, [wardName]);
 
-        if (configRows.length === 0) {
+            if (configRows.length === 0) {
 
-            console.log(
-                `❌ ไม่พบ Config : ${wardName}`
-            );
+                console.log(
+                    `❌ ไม่พบ Config : ${wardName}`
+                );
 
-            continue;
+                continue;
 
-        }
+            }
 
-        const clientKey =
-            configRows[0].client_key;
+            const clientKey =
+                configRows[0].client_key;
 
-        const secretKey =
-            configRows[0].secret_key;
+            const secretKey =
+                configRows[0].secret_key;
 
-        const total =
-            wardGroups[wardName].length;
+            const total =
+                wardGroups[wardName].length;
 
-        let message =
+            let message =
 
-`🚨 แจ้งเตือนผล LAB วิกฤติ
+                `🚨 แจ้งเตือนผล LAB วิกฤติ
 
 🏥 Ward : ${wardName}
 📋 จำนวน : ${total} ราย
@@ -343,39 +387,39 @@ try {
 
 `;
 
-        const ids = [];
+            const ids = [];
 
-        for (const row of wardGroups[wardName]) {
+            for (const row of wardGroups[wardName]) {
 
-            let criticalText = '';
+                let criticalText = '';
 
-            if (
-                row.critical_low !== null &&
-                Number(row.result_value) <
-                Number(row.critical_low)
-            ) {
+                if (
+                    row.critical_low !== null &&
+                    Number(row.result_value) <
+                    Number(row.critical_low)
+                ) {
 
-                criticalText =
-                    '🔻 ต่ำกว่าค่าวิกฤติ';
+                    criticalText =
+                        '🔻 ต่ำกว่าค่าวิกฤติ';
 
-            }
+                }
 
-            if (
-                row.critical_high !== null &&
-                Number(row.result_value) >
-                Number(row.critical_high)
-            ) {
+                if (
+                    row.critical_high !== null &&
+                    Number(row.result_value) >
+                    Number(row.critical_high)
+                ) {
 
-                criticalText =
-                    '🔺 สูงกว่าค่าวิกฤติ';
+                    criticalText =
+                        '🔺 สูงกว่าค่าวิกฤติ';
 
-            }
+                }
 
-            message +=
+                message +=
 
-`👤 ${row.patient_name}
+                    `👤 ${row.patient_name}
 🆔 HN : ${row.hn}
-⚧  เพศ :${row.sex_name} ปี
+⚧  เพศ :${row.sex_name}
 🎂 อายุ : ${row.age} ปี
 🧪 Lab: ${row.lab_items_name}
 📈 Result : ${row.result_value}
@@ -383,24 +427,24 @@ ${criticalText}
 
 `;
 
-            ids.push(row.id);
+                ids.push(row.id);
 
-        }
+            }
 
-        console.log(
-            `WARD= ${wardName}`
-        );
-
-        const sent =
-            await sendMorProm(
-                clientKey,
-                secretKey,
-                message
+            console.log(
+                `WARD= ${wardName}`
             );
 
-        if (sent) {
+            const sent =
+                await sendMorProm(
+                    clientKey,
+                    secretKey,
+                    message
+                );
 
-            await db.query(`
+            if (sent) {
+
+                await db.query(`
                 UPDATE critical_lab_alert
                 SET
                     morprom_sent='Y',
@@ -408,36 +452,36 @@ ${criticalText}
                 WHERE id IN (${ids.join(',')})
             `);
 
-            sentCount += ids.length;
+                sentCount += ids.length;
 
-            console.log(
-                `✅ MorProm ${wardName} : ${ids.length} ราย`
-            );
+                console.log(
+                    `✅ MorProm ${wardName} : ${ids.length} ราย`
+                );
+
+            }
 
         }
 
+        console.log(
+            `🎯 ส่งสำเร็จ ${sentCount} ราย`
+        );
+
+        res.json({
+            ok: true,
+            total: alerts.length,
+            sent: sentCount
+        });
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).json({
+            ok: false,
+            error: err.message
+        });
+
     }
-
-    console.log(
-        `🎯 ส่งสำเร็จ ${sentCount} ราย`
-    );
-
-    res.json({
-        ok: true,
-        total: alerts.length,
-        sent: sentCount
-    });
-
-} catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-        ok: false,
-        error: err.message
-    });
-
-}
 
 });
 
